@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from app.models import User
 import db
 
 
@@ -25,13 +26,13 @@ def temp_db():
 def test_create_user(temp_db):
     """Test creating a user"""
     with patch.object(db, 'db_path', temp_db):
-        db.create_user("testuser", "hashed_password")
+        db.create_user(User(username="testuser", password="password"))
         
         # Verify user was created
         user = db.get_user("testuser")
         assert user is not None
-        assert user[1] == "testuser"
-        assert user[2] == "hashed_password"
+        assert user.username == "testuser"
+        assert user.password == "password"
 
 
 def test_get_user_nonexistent(temp_db):

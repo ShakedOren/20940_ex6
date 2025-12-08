@@ -14,7 +14,7 @@ def init_db(path: str):
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL
+                password TEXT NOT NULL
             )
             """
         )
@@ -32,8 +32,8 @@ def get_conn():
 def create_user(user: User):
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-            (user.username, user.password_hash),
+            "INSERT INTO users (username, password) VALUES (?, ?)",
+            (user.username, user.password),
         )
 
         conn.commit()
@@ -42,5 +42,5 @@ def get_user(username: str) -> User | None:
     with get_conn() as conn:
         result = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         if result:
-            return User(username=result[1], password_hash=result[2])
+            return User(username=result[1], password=result[2])
         return None
