@@ -2,6 +2,8 @@ from typing import Literal
 
 import bcrypt
 
+from app import config
+
 HashMode = Literal["bcrypt"]
 
 def _apply_pepper(password: str, pepper: str) -> bytes:
@@ -23,4 +25,4 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 
 def get_pepper() -> str:
-    return "tmp_pepper"
+    return config.Config().pepper
