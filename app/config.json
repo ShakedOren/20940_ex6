@@ -1,0 +1,7 @@
+{
+  "db_url": "sqlite:///./app.db",
+  "group_seed": "526078169",
+  "enable_rate_limit": true,
+  "rate_limit_attempts": 20,
+  "rate_limit_window_s": 60
+}

@@ -1,14 +1,15 @@
 from fastapi import FastAPI, HTTPException
 
 from app import db
-from app.config import Config
+from app.config import Config, load_config
 from app.models import LoginRequest, LoginResponse, RegisterRequest, RegisterResponse
 from app.rate_limit import RateLimiter
 from app.security import verify_password
 
 app = FastAPI(title="Password Defense Lab")
 
-rate_limiter = RateLimiter(Config.rate_limit_attempts, Config.rate_limit_window_s)
+config = load_config("config.json")
+rate_limiter = RateLimiter(config.rate_limit_attempts, config.rate_limit_window_s)
 
 
 @app.get("/health")

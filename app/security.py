@@ -5,7 +5,7 @@ from typing import Literal
 import bcrypt
 from argon2 import PasswordHasher
 
-from app.config import Config
+from app.config import Config, load_config
 
 HashMode = Literal["sha256", "bcrypt", "argon2id"]
 
@@ -45,4 +45,4 @@ def verify_password(password: str, salt: str, pepper: str, stored_hash: str, mod
     raise ValueError(f"Unsupported hash mode: {mode}")
 
 def get_pepper() -> str:
-    return Config.pepper
+    return load_config().pepper
