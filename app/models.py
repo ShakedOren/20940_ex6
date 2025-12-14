@@ -1,4 +1,3 @@
-from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -18,6 +17,11 @@ class RegisterResponse(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+    captcha_token: str | None = None
 
 class LoginResponse(BaseModel):
     result: str
+
+class AdminCaptchaResponse(BaseModel):
+    captcha_token: str
+    expires_in: int

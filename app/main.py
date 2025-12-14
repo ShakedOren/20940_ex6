@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 
 from app import db
+from app.captcha import issue_captcha, verify_captcha
 from app.config import Config, load_config
 from app.lockout_tracker import LockoutTracker
-from app.models import LoginRequest, LoginResponse, RegisterRequest, RegisterResponse
+from app.models import AdminCaptchaResponse, LoginRequest, LoginResponse, RegisterRequest, RegisterResponse
 from app.rate_limit import RateLimiter
 from app.security import verify_password, get_pepper
 
@@ -12,6 +13,7 @@ app = FastAPI(title="Password Defense Lab")
 config = load_config("config.json")
 rate_limiter = RateLimiter(config.rate_limit_attempts, config.rate_limit_window_s)
 lockouts = LockoutTracker(config.lockout_threshold, config.lockout_duration_s)
+_captcha_failures: dict[str, int] = {}
 
 
 @app.get("/health")
@@ -32,6 +34,12 @@ def register(req: RegisterRequest):
 def login(req: LoginRequest):
     return _handle_login(req)
 
+@app.get("/admin/get_captcha_token", response_model=AdminCaptchaResponse)
+def admin_get_captcha_token(group_seed: str):
+    if group_seed != config.group_seed:
+        raise HTTPException(status_code=403, detail="invalid group seed")
+    token, ttl = issue_captcha(config.captcha_ttl_s)
+    return AdminCaptchaResponse(captcha_token=token, expires_in=ttl)
 
 def _create_user(req: RegisterRequest):
     db.create_user(req.username, req.password)
@@ -53,14 +61,26 @@ def _handle_login(req: LoginRequest):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
+    if _requires_captcha(req.username):
+        if not req.captcha_token or not verify_captcha(req.captcha_token):
+            raise HTTPException(status_code=401, detail="Captcha is incorrect")
+            
     pepper = get_pepper()
     password_valid = verify_password(req.password, user.salt, pepper, user.password, "argon2id")
     
     if not password_valid:
         if config.enable_lockout:
             lockouts.record_failure(client_key)
+
+        _captcha_failures[client_key] = _captcha_failures.get(client_key, 0) + 1
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
     if config.enable_lockout:
         lockouts.record_success(client_key)
+
+    _captcha_failures.pop(client_key, None)
     return LoginResponse(result="success")
+
+def _requires_captcha(username: str) -> bool:
+    count = _captcha_failures.get(username, 0)
+    return config.enable_captcha and count >= config.captcha_fail_threshold

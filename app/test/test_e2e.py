@@ -68,6 +68,8 @@ def client(temp_db):
         main.rate_limiter.buckets.clear()
         main.lockouts.failures.clear()
         main.lockouts.locked_until.clear()
+        # Reset captcha failures
+        main._captcha_failures.clear()
         
         test_client = TestClient(main.app)
         yield test_client
@@ -259,10 +261,23 @@ class TestRateLimiting:
             assert response.status_code == 401
         
         # Now make attempts to reach rate limit (20 total)
+        # After 3 failures, captcha is required (we already have 9, so captcha is needed)
+        # Tokens are single-use, so get new one for each attempt
         for i in range(11):
+            # Get a new captcha token for each attempt (tokens are single-use)
+            captcha_response = client.get(
+                "/admin/get_captcha_token",
+                params={"group_seed": "526078169"}
+            )
+            captcha_token = captcha_response.json()["captcha_token"]
+            
             response = client.post(
                 "/login",
-                json={"username": "testuser", "password": "wrongpassword"}
+                json={
+                    "username": "testuser",
+                    "password": "wrongpassword",
+                    "captcha_token": captcha_token
+                }
             )
             assert response.status_code == 401
         
@@ -275,9 +290,20 @@ class TestRateLimiting:
             
             # Should be able to make another attempt (rate limit expired, but user is locked)
             # User is locked because we exceeded lockout threshold (10)
+            # Get a new captcha token for this attempt
+            captcha_response = client.get(
+                "/admin/get_captcha_token",
+                params={"group_seed": "526078169"}
+            )
+            captcha_token = captcha_response.json()["captcha_token"]
+            
             response = client.post(
                 "/login",
-                json={"username": "testuser", "password": "wrongpassword"}
+                json={
+                    "username": "testuser",
+                    "password": "wrongpassword",
+                    "captcha_token": captcha_token
+                }
             )
             # Should fail with lockout since we exceeded threshold
             assert response.status_code == 401
@@ -323,18 +349,40 @@ class TestLockout:
         
         # Default lockout threshold is 10
         # Make failed login attempts up to threshold
+        # After 3 failures, captcha is required (tokens are single-use, so get new one each time)
         for i in range(10):
-            response = client.post(
-                "/login",
-                json={"username": "testuser", "password": "wrongpassword"}
-            )
+            login_data = {
+                "username": "testuser",
+                "password": "wrongpassword"
+            }
+            if i >= 3:
+                # Get a new captcha token for each attempt after 3rd (tokens are single-use)
+                captcha_response = client.get(
+                    "/admin/get_captcha_token",
+                    params={"group_seed": "526078169"}
+                )
+                login_data["captcha_token"] = captcha_response.json()["captcha_token"]
+            
+            response = client.post("/login", json=login_data)
             assert response.status_code == 401
+            # First 3 attempts: invalid password, rest: invalid password (with captcha)
             assert "Invalid username or password" in response.json()["detail"]
         
         # 11th attempt should trigger lockout
+        # Get a new captcha token for this attempt
+        captcha_response = client.get(
+            "/admin/get_captcha_token",
+            params={"group_seed": "526078169"}
+        )
+        captcha_token = captcha_response.json()["captcha_token"]
+        
         response = client.post(
             "/login",
-            json={"username": "testuser", "password": "wrongpassword"}
+            json={
+                "username": "testuser",
+                "password": "wrongpassword",
+                "captcha_token": captcha_token
+            }
         )
         assert response.status_code == 401
         # Should be locked out
@@ -350,16 +398,37 @@ class TestLockout:
         
         # Trigger lockout by making many failed attempts
         # Need to exceed lockout threshold (default 10)
+        # After 3 failures, captcha is required (tokens are single-use, so get new one each time)
         for i in range(11):
-            client.post(
-                "/login",
-                json={"username": "testuser", "password": "wrongpassword"}
-            )
+            login_data = {
+                "username": "testuser",
+                "password": "wrongpassword"
+            }
+            if i >= 3:
+                # Get a new captcha token for each attempt after 3rd (tokens are single-use)
+                captcha_response = client.get(
+                    "/admin/get_captcha_token",
+                    params={"group_seed": "526078169"}
+                )
+                login_data["captcha_token"] = captcha_response.json()["captcha_token"]
+            
+            client.post("/login", json=login_data)
         
         # Try to login with correct password while locked
+        # Get a new captcha token for this attempt
+        captcha_response = client.get(
+            "/admin/get_captcha_token",
+            params={"group_seed": "526078169"}
+        )
+        captcha_token = captcha_response.json()["captcha_token"]
+        
         response = client.post(
             "/login",
-            json={"username": "testuser", "password": "password123"}
+            json={
+                "username": "testuser",
+                "password": "password123",
+                "captcha_token": captcha_token
+            }
         )
         assert response.status_code == 401
         # Should be locked out
@@ -374,11 +443,21 @@ class TestLockout:
         )
         
         # Trigger lockout
+        # After 3 failures, captcha is required (tokens are single-use, so get new one each time)
         for i in range(11):
-            client.post(
-                "/login",
-                json={"username": "testuser", "password": "wrongpassword"}
-            )
+            login_data = {
+                "username": "testuser",
+                "password": "wrongpassword"
+            }
+            if i >= 3:
+                # Get a new captcha token for each attempt after 3rd (tokens are single-use)
+                captcha_response = client.get(
+                    "/admin/get_captcha_token",
+                    params={"group_seed": "526078169"}
+                )
+                login_data["captcha_token"] = captcha_response.json()["captcha_token"]
+            
+            client.post("/login", json=login_data)
         
         # Verify locked
         locked, _ = main.lockouts.is_locked("testuser")
@@ -468,17 +547,42 @@ class TestIntegrationScenarios:
         )
         
         # Make some failed attempts (but not enough to lockout)
+        # After 3 failures, captcha is required
+        captcha_token = None
         for i in range(5):
-            response = client.post(
-                "/login",
-                json={"username": "testuser", "password": "wrong"}
-            )
+            if i >= 3 and captcha_token is None:
+                # Get captcha token after 3rd failure
+                captcha_response = client.get(
+                    "/admin/get_captcha_token",
+                    params={"group_seed": "526078169"}
+                )
+                captcha_token = captcha_response.json()["captcha_token"]
+            
+            login_data = {
+                "username": "testuser",
+                "password": "wrong"
+            }
+            if captcha_token:
+                login_data["captcha_token"] = captcha_token
+            
+            response = client.post("/login", json=login_data)
             assert response.status_code == 401
         
         # Successful login should work
+        # Get a new captcha token for successful login
+        captcha_response = client.get(
+            "/admin/get_captcha_token",
+            params={"group_seed": "526078169"}
+        )
+        captcha_token = captcha_response.json()["captcha_token"]
+        
         response = client.post(
             "/login",
-            json={"username": "testuser", "password": "password123"}
+            json={
+                "username": "testuser",
+                "password": "password123",
+                "captcha_token": captcha_token
+            }
         )
         assert response.status_code == 200
         assert response.json() == {"result": "success"}
@@ -551,4 +655,400 @@ class TestIntegrationScenarios:
         )
         # Should fail validation or return 401
         assert response.status_code in [400, 401, 422]
+
+
+
+class TestCaptchaE2E:
+    """End-to-end tests for captcha functionality"""
+    
+    def test_admin_get_captcha_token_success(self, client):
+        """Test getting a captcha token from admin endpoint with valid group_seed"""
+        response = client.get(
+            "/admin/get_captcha_token",
+            params={"group_seed": "526078169"}  # Default group_seed from config
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "captcha_token" in data
+        assert "expires_in" in data
+        assert isinstance(data["captcha_token"], str)
+        assert len(data["captcha_token"]) > 0
+        assert data["expires_in"] == 300  # Default captcha_ttl_s
+    
+    def test_admin_get_captcha_token_invalid_seed(self, client):
+        """Test that admin endpoint rejects invalid group_seed"""
+        response = client.get(
+            "/admin/get_captcha_token",
+            params={"group_seed": "invalid_seed"}
+        )
+        assert response.status_code == 403
+        assert "invalid group seed" in response.json()["detail"]
+    
+    def test_login_requires_captcha_after_threshold_failures(self, client):
+        """Test that login requires captcha after reaching failure threshold"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "captchauser", "password": "password123"}
+        )
+        
+        # Default captcha_fail_threshold is 3
+        # Make 3 failed login attempts
+        for i in range(3):
+            response = client.post(
+                "/login",
+                json={"username": "captchauser", "password": "wrongpassword"}
+            )
+            assert response.status_code == 401
+            assert "Invalid username or password" in response.json()["detail"]
+        
+        # 4th attempt without captcha should require captcha
+        response = client.post(
+            "/login",
+            json={"username": "captchauser", "password": "wrongpassword"}
+        )
+        assert response.status_code == 401
+        assert "Captcha is incorrect" in response.json()["detail"]
+    
+    def test_login_with_valid_captcha_token(self, client):
+        """Test successful login with valid captcha token after threshold failures"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "captchauser", "password": "password123"}
+        )
+        
+        # Make enough failed attempts to trigger captcha requirement
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "captchauser", "password": "wrongpassword"}
+            )
+        
+        # Get a captcha token from admin endpoint
+        captcha_response = client.get(
+            "/admin/get_captcha_token",
+            params={"group_seed": "526078169"}
+        )
+        assert captcha_response.status_code == 200
+        captcha_token = captcha_response.json()["captcha_token"]
+        
+        # Login with valid captcha token and correct password
+        response = client.post(
+            "/login",
+            json={
+                "username": "captchauser",
+                "password": "password123",
+                "captcha_token": captcha_token
+            }
+        )
+        assert response.status_code == 200
+        assert response.json() == {"result": "success"}
+    
+    def test_login_with_invalid_captcha_token(self, client):
+        """Test login fails with invalid captcha token"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "captchauser", "password": "password123"}
+        )
+        
+        # Make enough failed attempts to trigger captcha requirement
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "captchauser", "password": "wrongpassword"}
+            )
+        
+        # Try to login with invalid captcha token
+        response = client.post(
+            "/login",
+            json={
+                "username": "captchauser",
+                "password": "password123",
+                "captcha_token": "invalid_token_12345"
+            }
+        )
+        assert response.status_code == 401
+        assert "Captcha is incorrect" in response.json()["detail"]
+    
+    def test_login_with_missing_captcha_token_after_threshold(self, client):
+        """Test login fails when captcha is required but token is missing"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "captchauser", "password": "password123"}
+        )
+        
+        # Make enough failed attempts to trigger captcha requirement
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "captchauser", "password": "wrongpassword"}
+            )
+        
+        # Try to login without captcha token (None)
+        response = client.post(
+            "/login",
+            json={
+                "username": "captchauser",
+                "password": "password123"
+                # captcha_token is None by default
+            }
+        )
+        assert response.status_code == 401
+        assert "Captcha is incorrect" in response.json()["detail"]
+    
+    def test_captcha_cleared_after_successful_login(self, client):
+        """Test that captcha requirement is cleared after successful login"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "captchauser", "password": "password123"}
+        )
+        
+        # Make enough failed attempts to trigger captcha requirement
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "captchauser", "password": "wrongpassword"}
+            )
+        
+        # Verify captcha is required
+        response = client.post(
+            "/login",
+            json={"username": "captchauser", "password": "wrongpassword"}
+        )
+        assert response.status_code == 401
+        assert "Captcha is incorrect" in response.json()["detail"]
+        
+        # Get captcha token and login successfully
+        captcha_response = client.get(
+            "/admin/get_captcha_token",
+            params={"group_seed": "526078169"}
+        )
+        captcha_token = captcha_response.json()["captcha_token"]
+        
+        response = client.post(
+            "/login",
+            json={
+                "username": "captchauser",
+                "password": "password123",
+                "captcha_token": captcha_token
+            }
+        )
+        assert response.status_code == 200
+        
+        # After successful login, captcha should not be required anymore
+        # Make a few more failed attempts (less than threshold)
+        for i in range(2):
+            response = client.post(
+                "/login",
+                json={"username": "captchauser", "password": "wrongpassword"}
+            )
+            # Should fail with invalid password, not captcha requirement
+            assert response.status_code == 401
+            assert "Invalid username or password" in response.json()["detail"]
+            assert "Captcha" not in response.json()["detail"]
+    
+    def test_captcha_token_one_time_use(self, client):
+        """Test that captcha tokens can only be used once"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "captchauser", "password": "password123"}
+        )
+        
+        # Make enough failed attempts to trigger captcha requirement
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "captchauser", "password": "wrongpassword"}
+            )
+        
+        # Get a captcha token
+        captcha_response = client.get(
+            "/admin/get_captcha_token",
+            params={"group_seed": "526078169"}
+        )
+        captcha_token = captcha_response.json()["captcha_token"]
+        
+        # Use the token successfully
+        response = client.post(
+            "/login",
+            json={
+                "username": "captchauser",
+                "password": "password123",
+                "captcha_token": captcha_token
+            }
+        )
+        assert response.status_code == 200
+        
+        # Make more failures to require captcha again
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "captchauser", "password": "wrongpassword"}
+            )
+        
+        # Try to use the same token again (should fail)
+        response = client.post(
+            "/login",
+            json={
+                "username": "captchauser",
+                "password": "password123",
+                "captcha_token": captcha_token
+            }
+        )
+        assert response.status_code == 401
+        assert "Captcha is incorrect" in response.json()["detail"]
+    
+    def test_captcha_token_expiration(self, client):
+        """Test that expired captcha tokens are rejected"""
+        from unittest.mock import patch
+        from app import captcha
+        
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "captchauser", "password": "password123"}
+        )
+        
+        # Make enough failed attempts to trigger captcha requirement
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "captchauser", "password": "wrongpassword"}
+            )
+        
+        # Get a captcha token with mocked time
+        with patch('app.captcha.time.time') as mock_time:
+            mock_time.return_value = 1000.0
+            # Issue token manually to control expiration
+            token, ttl = captcha.issue_captcha(ttl_s=300)
+            # Token expires at 1000 + 300 = 1300
+            
+            # Try to use token before expiration (should work)
+            mock_time.return_value = 1200.0
+            response = client.post(
+                "/login",
+                json={
+                    "username": "captchauser",
+                    "password": "password123",
+                    "captcha_token": token
+                }
+            )
+            assert response.status_code == 200
+        
+        # Make more failures to require captcha again
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "captchauser", "password": "wrongpassword"}
+            )
+        
+        # Get a new token and expire it
+        with patch('app.captcha.time.time') as mock_time:
+            mock_time.return_value = 1000.0
+            token, ttl = captcha.issue_captcha(ttl_s=300)
+            
+            # Try to use token after expiration
+            mock_time.return_value = 1301.0
+            response = client.post(
+                "/login",
+                json={
+                    "username": "captchauser",
+                    "password": "password123",
+                    "captcha_token": token
+                }
+            )
+            assert response.status_code == 401
+            assert "Captcha is incorrect" in response.json()["detail"]
+    
+    def test_captcha_per_user_tracking(self, client):
+        """Test that captcha failures are tracked per user"""
+        # Register two users
+        client.post(
+            "/register",
+            json={"username": "user1", "password": "pass123"}
+        )
+        client.post(
+            "/register",
+            json={"username": "user2", "password": "pass456"}
+        )
+        
+        # Make failures for user1 to trigger captcha requirement
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "user1", "password": "wrong"}
+            )
+        
+        # Verify user1 requires captcha
+        response = client.post(
+            "/login",
+            json={"username": "user1", "password": "wrong"}
+        )
+        assert response.status_code == 401
+        assert "Captcha is incorrect" in response.json()["detail"]
+        
+        # user2 should not require captcha yet
+        response = client.post(
+            "/login",
+            json={"username": "user2", "password": "wrong"}
+        )
+        assert response.status_code == 401
+        assert "Invalid username or password" in response.json()["detail"]
+        assert "Captcha" not in response.json()["detail"]
+        
+        # Make failures for user2 to trigger captcha requirement
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "user2", "password": "wrong"}
+            )
+        
+        # Now user2 should also require captcha
+        response = client.post(
+            "/login",
+            json={"username": "user2", "password": "wrong"}
+        )
+        assert response.status_code == 401
+        assert "Captcha is incorrect" in response.json()["detail"]
+    
+    def test_captcha_with_wrong_password_but_valid_token(self, client):
+        """Test that valid captcha token doesn't bypass password validation"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "captchauser", "password": "password123"}
+        )
+        
+        # Make enough failed attempts to trigger captcha requirement
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "captchauser", "password": "wrongpassword"}
+            )
+        
+        # Get a valid captcha token
+        captcha_response = client.get(
+            "/admin/get_captcha_token",
+            params={"group_seed": "526078169"}
+        )
+        captcha_token = captcha_response.json()["captcha_token"]
+        
+        # Try to login with valid captcha but wrong password
+        response = client.post(
+            "/login",
+            json={
+                "username": "captchauser",
+                "password": "wrongpassword",
+                "captcha_token": captcha_token
+            }
+        )
+        # Should fail with invalid password, not captcha error
+        assert response.status_code == 401
+        assert "Invalid username or password" in response.json()["detail"]
+        assert "Captcha" not in response.json()["detail"]
 
