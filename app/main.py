@@ -14,8 +14,8 @@ def register(req: RegisterRequest):
     existing = db.get_user(req.username)
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
-    user = _create_user(req)
-    return RegisterResponse(username=user["username"], hash_mode=user["hash_mode"], message="created")
+    _create_user(req)
+    return RegisterResponse(result="created")
 
 
 @app.post("/login", response_model=LoginResponse)
@@ -24,12 +24,12 @@ def login(req: LoginRequest):
 
 
 def _create_user(req: RegisterRequest):
-    return db.create_user(req.username, req.password)
+    db.create_user(req.username, req.password)
 
 def _handle_login(req: LoginRequest):
     user = db.get_user(req.username)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    if user.password != req.password:
+    if not db.verify_password(req.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid username or password")
     return LoginResponse(result="success")

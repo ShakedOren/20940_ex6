@@ -26,13 +26,15 @@ def temp_db():
 def test_create_user(temp_db):
     """Test creating a user"""
     with patch.object(db, 'db_path', temp_db):
-        db.create_user(User(username="testuser", password="password"))
+        db.create_user("testuser", "password")
         
         # Verify user was created
         user = db.get_user("testuser")
         assert user is not None
         assert user.username == "testuser"
-        assert user.password == "password"
+        # Password should be hashed, not plain text
+        assert user.password != "password"
+        assert db.verify_password("password", user.password) == True
 
 
 def test_get_user_nonexistent(temp_db):
@@ -49,5 +51,8 @@ def test_create_and_get_user(temp_db):
         user = db.get_user("newuser")
         
         assert user is not None
-        assert user[1] == "newuser"
-        assert user[2] == "password123"
+        assert user.username == "newuser"
+        # Password should be hashed, verify it matches
+        assert db.verify_password("password123", user.password) == True
+        # Verify wrong password fails
+        assert db.verify_password("wrongpassword", user.password) == False

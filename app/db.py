@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import sqlite3
+import bcrypt
 
 from app.models import User
 
@@ -29,14 +30,22 @@ def get_conn():
     finally:
         conn.close()
 
-def create_user(user: User):
+def hash_password(password: str) -> str:
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+def create_user(username: str, password: str):
+    hashed_password = hash_password(password)
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO users (username, password) VALUES (?, ?)",
-            (user.username, user.password),
+            (username, hashed_password),
         )
-
         conn.commit()
+        return {"username": username, "hash_mode": "bcrypt"}
 
 def get_user(username: str) -> User | None:
     with get_conn() as conn:
