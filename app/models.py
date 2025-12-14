@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 class User(BaseModel):
     username: str
     password: str
+    salt: str
 
 class RegisterRequest(BaseModel):
     username: str

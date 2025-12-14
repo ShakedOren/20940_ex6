@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 
 from app import db
 from app.models import LoginRequest, LoginResponse, RegisterRequest, RegisterResponse
+from app.security import verify_password
 app = FastAPI(title="Password Defense Lab")
 
 @app.get("/health")
@@ -30,6 +31,6 @@ def _handle_login(req: LoginRequest):
     user = db.get_user(req.username)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    if not db.verify_password(req.password, user.password):
+    if not verify_password(req.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid username or password")
     return LoginResponse(result="success")

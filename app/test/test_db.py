@@ -7,8 +7,8 @@ from unittest.mock import patch
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from app.models import User
-import db
-
+from app import db
+from app.security import hash_password, verify_password
 
 @pytest.fixture
 def temp_db():
@@ -34,7 +34,7 @@ def test_create_user(temp_db):
         assert user.username == "testuser"
         # Password should be hashed, not plain text
         assert user.password != "password"
-        assert db.verify_password("password", user.password) == True
+        assert verify_password("password", user.password) == True
 
 
 def test_get_user_nonexistent(temp_db):
@@ -53,6 +53,6 @@ def test_create_and_get_user(temp_db):
         assert user is not None
         assert user.username == "newuser"
         # Password should be hashed, verify it matches
-        assert db.verify_password("password123", user.password) == True
+        assert verify_password("password123", user.password) == True
         # Verify wrong password fails
-        assert db.verify_password("wrongpassword", user.password) == False
+        assert verify_password("wrongpassword", user.password) == False

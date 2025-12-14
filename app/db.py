@@ -1,8 +1,10 @@
 from contextlib import contextmanager
+import os
 import sqlite3
 import bcrypt
 
 from app.models import User
+from app.security import hash_password, verify_password, get_pepper
 
 db_path = "app.db"
 
@@ -15,7 +17,8 @@ def init_db(path: str):
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL
+                password TEXT NOT NULL,
+                salt TEXT NOT NULL
             )
             """
         )
@@ -30,26 +33,22 @@ def get_conn():
     finally:
         conn.close()
 
-def hash_password(password: str) -> str:
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
-
-def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-
 def create_user(username: str, password: str):
-    hashed_password = hash_password(password)
+    salt = os.urandom(16).hex()
+    pepper = get_pepper()
+    hashed_password = hash_password(password, salt, pepper)
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO users (username, password) VALUES (?, ?)",
-            (username, hashed_password),
+            "INSERT INTO users (username, password, salt) VALUES (?, ?, ?)",
+            (username, hashed_password, salt),
         )
         conn.commit()
         return {"username": username, "hash_mode": "bcrypt"}
 
 def get_user(username: str) -> User | None:
     with get_conn() as conn:
+        conn.row_factory = sqlite3.Row
         result = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         if result:
-            return User(username=result[1], password=result[2])
+            return User(username=result["username"], password=result["password"], salt=result["salt"])
         return None
