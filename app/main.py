@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 
 from app import db
 from app.config import Config, load_config
+from app.lockout_tracker import LockoutTracker
 from app.models import LoginRequest, LoginResponse, RegisterRequest, RegisterResponse
 from app.rate_limit import RateLimiter
 from app.security import verify_password
@@ -10,6 +11,7 @@ app = FastAPI(title="Password Defense Lab")
 
 config = load_config("config.json")
 rate_limiter = RateLimiter(config.rate_limit_attempts, config.rate_limit_window_s)
+lockouts = LockoutTracker(config.lockout_threshold, config.lockout_duration_s)
 
 
 @app.get("/health")
@@ -42,6 +44,11 @@ def _handle_login(req: LoginRequest):
         allowed = rate_limiter.check(client_key)
         if not allowed:
             raise HTTPException(status_code=401, detail="Too mant attempts")
+
+    if config.enable_lockout:
+        locked = lockouts.is_locked(client_key)
+        if locked:
+            raise HTTPException(status_code=401, detail="User locked out")
 
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password")

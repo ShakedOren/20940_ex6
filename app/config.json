@@ -3,5 +3,8 @@
   "group_seed": "526078169",
   "enable_rate_limit": true,
   "rate_limit_attempts": 20,
-  "rate_limit_window_s": 60
+  "rate_limit_window_s": 60,
+  "enable_lockout": true,
+  "lockout_threshold": 10,
+  "lockout_duration_s": 300
 }

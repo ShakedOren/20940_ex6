@@ -13,6 +13,10 @@ class Config:
     rate_limit_attempts: int = 20
     rate_limit_window_s: int = 60
 
+    enable_lockout: bool = True
+    lockout_threshold: int = 10
+    lockout_duration_s: int = 300
+
 
 def load_config(path: str | None = None) -> Config:
     cfg = Config()
