@@ -1067,3 +1067,330 @@ class TestCaptchaE2E:
         assert "Invalid username or password" in response.json()["detail"]
         assert "Captcha" not in response.json()["detail"]
 
+
+class TestLoginTotpE2E:
+    """End-to-end tests for TOTP login functionality"""
+    
+    def test_login_totp_success(self, client):
+        """Test successful login with valid TOTP code"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "totpuser", "password": "password123"}
+        )
+        
+        # Get user's TOTP secret from database
+        user = db.get_user("totpuser")
+        assert user is not None
+        assert user.totp_secret is not None
+        
+        # Generate valid TOTP code
+        import pyotp
+        totp_obj = pyotp.TOTP(user.totp_secret)
+        totp_code = totp_obj.now()
+        
+        # Login with valid TOTP
+        response = client.post(
+            "/login_totp",
+            json={
+                "username": "totpuser",
+                "password": "password123",
+                "totp_code": totp_code
+            }
+        )
+        assert response.status_code == 200
+        assert response.json() == {"result": "success"}
+    
+    def test_login_totp_invalid_code(self, client):
+        """Test login fails with invalid TOTP code"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "totpuser", "password": "password123"}
+        )
+        
+        # Try to login with invalid TOTP code
+        response = client.post(
+            "/login_totp",
+            json={
+                "username": "totpuser",
+                "password": "password123",
+                "totp_code": "000000"
+            }
+        )
+        assert response.status_code == 401
+        assert "Invalid TOTP code" in response.json()["detail"]
+    
+    def test_login_totp_missing_code(self, client):
+        """Test login fails when TOTP code is missing"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "totpuser", "password": "password123"}
+        )
+        
+        # Try to login without TOTP code
+        response = client.post(
+            "/login_totp",
+            json={
+                "username": "totpuser",
+                "password": "password123"
+                # totp_code is None by default
+            }
+        )
+        assert response.status_code == 401
+        assert "TOTP is required" in response.json()["detail"]
+    
+    def test_login_totp_wrong_password(self, client):
+        """Test that TOTP validation doesn't bypass password validation"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "totpuser", "password": "password123"}
+        )
+        
+        # Get user's TOTP secret
+        user = db.get_user("totpuser")
+        import pyotp
+        totp_obj = pyotp.TOTP(user.totp_secret)
+        totp_code = totp_obj.now()
+        
+        # Try to login with valid TOTP but wrong password
+        response = client.post(
+            "/login_totp",
+            json={
+                "username": "totpuser",
+                "password": "wrongpassword",
+                "totp_code": totp_code
+            }
+        )
+        assert response.status_code == 401
+        assert "Invalid username or password" in response.json()["detail"]
+        assert "TOTP" not in response.json()["detail"]
+    
+    def test_login_totp_invalid_username(self, client):
+        """Test login_totp fails with non-existent username"""
+        response = client.post(
+            "/login_totp",
+            json={
+                "username": "nonexistent",
+                "password": "password123",
+                "totp_code": "123456"
+            }
+        )
+        assert response.status_code == 401
+        assert "Invalid username or password" in response.json()["detail"]
+    
+    def test_login_totp_with_captcha_requirement(self, client):
+        """Test login_totp works with captcha requirement"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "totpuser", "password": "password123"}
+        )
+        
+        # Make enough failed attempts to trigger captcha requirement
+        for i in range(3):
+            client.post(
+                "/login",
+                json={"username": "totpuser", "password": "wrongpassword"}
+            )
+        
+        # Get user's TOTP secret
+        user = db.get_user("totpuser")
+        import pyotp
+        totp_obj = pyotp.TOTP(user.totp_secret)
+        totp_code = totp_obj.now()
+        
+        # Get captcha token
+        captcha_response = client.get(
+            "/admin/get_captcha_token",
+            params={"group_seed": "526078169"}
+        )
+        captcha_token = captcha_response.json()["captcha_token"]
+        
+        # Login with TOTP and captcha
+        response = client.post(
+            "/login_totp",
+            json={
+                "username": "totpuser",
+                "password": "password123",
+                "totp_code": totp_code,
+                "captcha_token": captcha_token
+            }
+        )
+        assert response.status_code == 200
+        assert response.json() == {"result": "success"}
+    
+    def test_login_totp_rate_limiting(self, client):
+        """Test that rate limiting applies to login_totp endpoint"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "totpuser", "password": "password123"}
+        )
+        
+        # Make many failed login_totp attempts (exceeding rate limit)
+        for i in range(21):
+            response = client.post(
+                "/login_totp",
+                json={
+                    "username": "totpuser",
+                    "password": "wrongpassword",
+                    "totp_code": "000000"
+                }
+            )
+            assert response.status_code == 401
+        
+        # 22nd attempt should still fail (rate limit or invalid credentials)
+        response = client.post(
+            "/login_totp",
+            json={
+                "username": "totpuser",
+                "password": "wrongpassword",
+                "totp_code": "000000"
+            }
+        )
+        assert response.status_code == 401
+    
+    def test_login_totp_lockout(self, client):
+        """Test that lockout applies to login_totp endpoint"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "totpuser", "password": "password123"}
+        )
+        
+        # Trigger lockout by making many failed attempts
+        # After 3 failures, captcha is required
+        for i in range(11):
+            login_data = {
+                "username": "totpuser",
+                "password": "wrongpassword",
+                "totp_code": "000000"
+            }
+            if i >= 3:
+                # Get a new captcha token for each attempt after 3rd
+                captcha_response = client.get(
+                    "/admin/get_captcha_token",
+                    params={"group_seed": "526078169"}
+                )
+                login_data["captcha_token"] = captcha_response.json()["captcha_token"]
+            
+            client.post("/login_totp", json=login_data)
+        
+        # Try to login with correct credentials and TOTP while locked
+        user = db.get_user("totpuser")
+        import pyotp
+        totp_obj = pyotp.TOTP(user.totp_secret)
+        totp_code = totp_obj.now()
+        
+        # Get captcha token
+        captcha_response = client.get(
+            "/admin/get_captcha_token",
+            params={"group_seed": "526078169"}
+        )
+        captcha_token = captcha_response.json()["captcha_token"]
+        
+        response = client.post(
+            "/login_totp",
+            json={
+                "username": "totpuser",
+                "password": "password123",
+                "totp_code": totp_code,
+                "captcha_token": captcha_token
+            }
+        )
+        assert response.status_code == 401
+        assert "User locked out" in response.json()["detail"]
+    
+    def test_login_totp_expired_code(self, client):
+        """Test that expired TOTP codes are rejected"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "totpuser", "password": "password123"}
+        )
+        
+        # Get user's TOTP secret
+        user = db.get_user("totpuser")
+        import pyotp
+        totp_obj = pyotp.TOTP(user.totp_secret)
+        
+        # Generate a code from a time step that's outside the valid window
+        # TOTP uses 30-second intervals, and valid_window=1 means we accept
+        # codes from current, previous, and next time step
+        # A code from 90 seconds ago (3 time steps) should be rejected
+        old_timestamp = int(time.time() - 90)
+        old_code = totp_obj.at(old_timestamp)
+        
+        response = client.post(
+            "/login_totp",
+            json={
+                "username": "totpuser",
+                "password": "password123",
+                "totp_code": old_code
+            }
+        )
+        # Should fail with invalid TOTP (expired codes are rejected)
+        assert response.status_code == 401
+        assert "Invalid TOTP code" in response.json()["detail"]
+    
+    def test_login_totp_multiple_successful_logins(self, client):
+        """Test that multiple successful login_totp attempts work"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "totpuser", "password": "password123"}
+        )
+        
+        # Get user's TOTP secret
+        user = db.get_user("totpuser")
+        import pyotp
+        totp_obj = pyotp.TOTP(user.totp_secret)
+        
+        # Login multiple times successfully
+        for i in range(5):
+            totp_code = totp_obj.now()
+            response = client.post(
+                "/login_totp",
+                json={
+                    "username": "totpuser",
+                    "password": "password123",
+                    "totp_code": totp_code
+                }
+            )
+            assert response.status_code == 200
+            assert response.json() == {"result": "success"}
+            # Small delay to ensure different time steps if needed
+            time.sleep(0.1)
+    
+    def test_login_totp_user_without_totp_secret(self, client):
+        """Test login_totp fails when user doesn't have TOTP secret configured"""
+        # Register a user
+        client.post(
+            "/register",
+            json={"username": "totpuser", "password": "password123"}
+        )
+        
+        # Manually set TOTP secret to None in database
+        from app.models import UserModel
+        from sqlalchemy import select
+        with db.get_session() as session:
+            stmt = select(UserModel).where(UserModel.username == "totpuser")
+            user_model = session.execute(stmt).scalar_one()
+            user_model.totp_secret = None
+            # Session will commit automatically via context manager
+        
+        # Try to login with TOTP
+        response = client.post(
+            "/login_totp",
+            json={
+                "username": "totpuser",
+                "password": "password123",
+                "totp_code": "123456"
+            }
+        )
+        assert response.status_code == 401
+        assert "TOTP is not configured for this user" in response.json()["detail"]
+
