@@ -9,5 +9,6 @@
   "lockout_duration_s": 300,
   "enable_captcha": true,
   "captcha_fail_threshold": 3,
-  "captcha_ttl_s": 300
+  "captcha_ttl_s": 300,
+  "enable_totp": true
 }

@@ -21,6 +21,8 @@ class Config:
     captcha_fail_threshold: int = 3
     captcha_ttl_s: int = 300
 
+    enable_totp: bool = True
+
 def load_config(path: str | None = None) -> Config:
     cfg = Config()
     if path and os.path.exists(path):
