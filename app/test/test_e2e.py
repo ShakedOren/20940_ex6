@@ -459,28 +459,43 @@ class TestLockout:
             
             client.post("/login", json=login_data)
         
-        # Verify locked
-        locked, _ = main.lockouts.is_locked("testuser")
+        # Verify locked and get remaining time
+        locked, remaining_seconds = main.lockouts.is_locked("testuser")
         assert locked == True
         
         # Mock time to expire lockout (default duration is 300 seconds)
         # Patch time.time in the lockout_tracker module
         current_time = time.time()
         with patch('app.lockout_tracker.time.time') as mock_time:
-            # Set initial time
+            # Set initial time to current real time
             mock_time.return_value = current_time
             
             # Verify still locked
             locked, _ = main.lockouts.is_locked("testuser")
             assert locked == True
             
-            # Move time forward past lockout duration
-            mock_time.return_value = current_time + 301
+            # Move time forward past lockout expiration (remaining_seconds + 1 to ensure it's expired)
+            mock_time.return_value = current_time + remaining_seconds + 1
+            
+            # Verify lockout has expired
+            locked, _ = main.lockouts.is_locked("testuser")
+            assert locked == False
             
             # Should be able to login now (lockout expired)
+            # Note: Captcha is still required after 3 failures, so we need to get a captcha token
+            captcha_response = client.get(
+                "/admin/get_captcha_token",
+                params={"group_seed": "526078169"}
+            )
+            captcha_token = captcha_response.json()["captcha_token"]
+            
             response = client.post(
                 "/login",
-                json={"username": "testuser", "password": "password123"}
+                json={
+                    "username": "testuser",
+                    "password": "password123",
+                    "captcha_token": captcha_token
+                }
             )
             # Should succeed now that lockout is expired
             assert response.status_code == 200
