@@ -40,7 +40,6 @@ class RegisterRequest(BaseModel):
 class RegisterResponse(BaseModel):
     result: str
 
-
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -52,3 +51,6 @@ class LoginResponse(BaseModel):
 class AdminCaptchaResponse(BaseModel):
     captcha_token: str
     expires_in: int
+
+class LoginTotpRequest(LoginRequest):
+    totp_code: str | None = None

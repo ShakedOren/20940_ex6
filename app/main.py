@@ -4,9 +4,10 @@ from app import db
 from app.captcha import issue_captcha, verify_captcha
 from app.config import Config, load_config
 from app.lockout_tracker import LockoutTracker
-from app.models import AdminCaptchaResponse, LoginRequest, LoginResponse, RegisterRequest, RegisterResponse
+from app.models import AdminCaptchaResponse, LoginRequest, LoginResponse, LoginTotpRequest, RegisterRequest, RegisterResponse
 from app.rate_limit import RateLimiter
 from app.security import verify_password, get_pepper
+from app.totp import verify_totp
 
 app = FastAPI(title="Password Defense Lab")
 
@@ -34,6 +35,12 @@ def register(req: RegisterRequest):
 def login(req: LoginRequest):
     return _handle_login(req)
 
+@app.post("/login_totp", response_model=LoginResponse)
+def login_totp(req: LoginTotpRequest):
+
+    return _handle_login(req, True, req.totp_code)
+
+
 @app.get("/admin/get_captcha_token", response_model=AdminCaptchaResponse)
 def admin_get_captcha_token(group_seed: str):
     if group_seed != config.group_seed:
@@ -44,7 +51,7 @@ def admin_get_captcha_token(group_seed: str):
 def _create_user(req: RegisterRequest):
     db.create_user(req.username, req.password)
 
-def _handle_login(req: LoginRequest):
+def _handle_login(req: LoginRequest, totp_required: bool = False, totp: str | None = None):
     user = db.get_user(req.username)  
     client_key = req.username
 
@@ -75,6 +82,15 @@ def _handle_login(req: LoginRequest):
         _captcha_failures[client_key] = _captcha_failures.get(client_key, 0) + 1
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
+    if totp_required and config.enable_totp:
+        if not totp:
+            raise HTTPException(status_code=401, detail="TOTP is required")
+        if not user.totp_secret:
+            raise HTTPException(status_code=401, detail="TOTP is not configured for this user")
+        is_valid, _ = verify_totp(user.totp_secret, totp)
+        if not is_valid:
+            raise HTTPException(status_code=401, detail="Invalid TOTP code")
+
     if config.enable_lockout:
         lockouts.record_success(client_key)
 
