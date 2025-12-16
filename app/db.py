@@ -36,18 +36,20 @@ def get_session():
     finally:
         session.close()
 
-def create_user(username: str, password: str) -> User:
+def create_user(username: str, password: str, hash_mode: str, category: str) -> User:
     salt = os.urandom(16).hex()
     pepper = get_pepper()
-    hashed_password = hash_password(password, salt, pepper)
+    hashed_password = hash_password(password, salt, pepper, hash_mode)
     totp_secret = generate_secret()
-    
+
     with get_session() as session:
         user_model = UserModel(
             username=username,
             password=hashed_password,
             salt=salt,
-            totp_secret=totp_secret
+            totp_secret=totp_secret,
+            hash_mode=hash_mode,
+            category=category
         )
         session.add(user_model)
         session.flush()

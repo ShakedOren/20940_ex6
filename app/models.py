@@ -14,7 +14,8 @@ class UserModel(Base):
     password = Column(String, nullable=False)
     salt = Column(String, nullable=False)
     totp_secret = Column(String, nullable=True)
-
+    hash_mode = Column(String, nullable=False)
+    category = Column(String, nullable=False)
 
 class User(BaseModel):
     id: int | None = None
@@ -22,7 +23,9 @@ class User(BaseModel):
     password: str
     salt: str
     totp_secret: str | None = None
-    
+    hash_mode: str | None = Field(default=None)
+    category: str | None = Field(default=None, description="weak|medium|strong")
+
     @classmethod
     def from_orm_model(cls, orm_user: UserModel) -> "User":
         return cls(
@@ -30,12 +33,16 @@ class User(BaseModel):
             username=orm_user.username,
             password=orm_user.password,
             salt=orm_user.salt,
-            totp_secret=orm_user.totp_secret
+            totp_secret=orm_user.totp_secret,
+            hash_mode=orm_user.hash_mode,
+            category=orm_user.category
         )
     
 class RegisterRequest(BaseModel):
     username: str
     password: str = Field(min_length=6)
+    hash_mode: str | None = Field(default=None)
+    category: str | None = Field(default=None, description="weak|medium|strong")
 
 class RegisterResponse(BaseModel):
     result: str
@@ -47,6 +54,11 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     result: str
+    protection_flags: list[str]
+    captcha_required: bool = False
+    lockout_remaining: int | None = None
+    latency_ms: float | None = None
+
 
 class AdminCaptchaResponse(BaseModel):
     captcha_token: str

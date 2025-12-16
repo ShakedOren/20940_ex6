@@ -1,14 +1,16 @@
 {
   "db_url": "sqlite:///./app.db",
   "group_seed": "526078169",
-  "enable_rate_limit": true,
+  "attempts_log_file": "attempts.log",
+  "default_hash_mode": "argon2id",
+  "enable_rate_limit": false,
   "rate_limit_attempts": 20,
   "rate_limit_window_s": 60,
-  "enable_lockout": true,
+  "enable_lockout": false,
   "lockout_threshold": 10,
   "lockout_duration_s": 300,
-  "enable_captcha": true,
+  "enable_captcha": false,
   "captcha_fail_threshold": 3,
   "captcha_ttl_s": 300,
-  "enable_totp": true
+  "enable_totp": false
 }

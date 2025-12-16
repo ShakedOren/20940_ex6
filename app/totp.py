@@ -1,5 +1,4 @@
 import time
-from typing import Tuple
 import pyotp
 
 
@@ -7,7 +6,7 @@ def generate_secret() -> str:
     return pyotp.random_base32()
 
 
-def verify_totp(secret: str, code: str, valid_window: int = 1) -> Tuple[bool, int | None]:
+def verify_totp(secret: str, code: str, valid_window: int = 1) -> tuple[bool, int | None]:
     totp = pyotp.TOTP(secret)
     now = time.time()
     step = totp.interval

@@ -64,7 +64,7 @@ def temp_db():
 def test_create_user(temp_db):
     """Test creating a user"""
     with patch.object(db, 'db_path', temp_db):
-        db.create_user("testuser", "password")
+        db.create_user("testuser", "password", "argon2id", "medium")
         
         # Verify user was created
         user = db.get_user("testuser")
@@ -85,7 +85,7 @@ def test_get_user_nonexistent(temp_db):
 def test_create_and_get_user(temp_db):
     """Test creating a user and then getting it"""
     with patch.object(db, 'db_path', temp_db):
-        db.create_user("newuser", "password123")
+        db.create_user("newuser", "password123", "argon2id", "medium")
         user = db.get_user("newuser")
         
         assert user is not None
