@@ -31,12 +31,15 @@ class Config:
 
 def load_config(path: str | None = None) -> Config:
     cfg = Config()
-    if path and os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for k, v in data.items():
-            if hasattr(cfg, k):
-                setattr(cfg, k, v)
+    if path:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for k, v in data.items():
+                if hasattr(cfg, k):
+                    setattr(cfg, k, v)
+        else:
+            print("Can't find config file")
 
     return cfg
 

@@ -12,5 +12,5 @@
   "enable_captcha": false,
   "captcha_fail_threshold": 3,
   "captcha_ttl_s": 300,
-  "enable_totp": false
+  "enable_totp": true
 }

@@ -18,6 +18,9 @@ rate_limiter = RateLimiter(config.rate_limit_attempts, config.rate_limit_window_
 lockouts = LockoutTracker(config.lockout_threshold, config.lockout_duration_s)
 _captcha_failures: dict[str, int] = {}
 
+@app.on_event("startup")
+def startup():
+    db.init_db("app.db")
 
 @app.get("/health")
 def health():
