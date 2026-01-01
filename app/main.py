@@ -79,22 +79,23 @@ def _handle_login(req: LoginRequest, totp_required: bool = False, totp: str | No
     start_time = time.perf_counter()
     user = db.get_user(req.username)  
     client_key = req.username
+    user_hash_mode = user.hash_mode if user.hash_mode is not None else config.default_hash_mode
     
     protection_flags = get_protection_flags(config)
 
     if config.enable_rate_limit:
         allowed = rate_limiter.check(client_key)
         if not allowed:
-            return _log_and_response(req.username, config.default_hash_mode, "rate_limit_exceeded", protection_flags, start_time)
+            return _log_and_response(req.username, user_hash_mode, "rate_limit_exceeded", protection_flags, start_time)
 
     if config.enable_lockout:
         locked, remaining = lockouts.is_locked(client_key)
         if locked:
             extra = {"lockout_remaining": remaining} if remaining else None
-            return _log_and_response(req.username, config.default_hash_mode, "locked_out", protection_flags, start_time, extra)
+            return _log_and_response(req.username, user_hash_mode, "locked_out", protection_flags, start_time, extra)
 
     if not user:
-        return _log_and_response(req.username, config.default_hash_mode, "invalid_credentials", protection_flags, start_time)
+        return _log_and_response(req.username, user_hash_mode, "invalid_credentials", protection_flags, start_time)
     
     if _requires_captcha(req.username):
         if not req.captcha_token or not verify_captcha(req.captcha_token):
@@ -102,7 +103,6 @@ def _handle_login(req: LoginRequest, totp_required: bool = False, totp: str | No
             return _log_and_response(req.username, config.default_hash_mode, "captcha_failed", protection_flags, start_time, extra)
             
     pepper = get_pepper()
-    user_hash_mode = user.hash_mode if user.hash_mode is not None else config.default_hash_mode
     password_valid = verify_password(req.password, user.salt, pepper, user.password, user_hash_mode)
     
     if not password_valid:
@@ -111,22 +111,22 @@ def _handle_login(req: LoginRequest, totp_required: bool = False, totp: str | No
 
         _captcha_failures[client_key] = _captcha_failures.get(client_key, 0) + 1
         extra = {"captcha_required": _requires_captcha(req.username)}
-        return _log_and_response(req.username, config.default_hash_mode, "invalid_credentials", protection_flags, start_time, extra)
+        return _log_and_response(req.username, user_hash_mode, "invalid_credentials", protection_flags, start_time, extra)
     
     if totp_required and config.enable_totp:
         if not totp:
-            return _log_and_response(req.username, config.default_hash_mode, "totp_required", protection_flags, start_time)
+            return _log_and_response(req.username, user_hash_mode, "totp_required", protection_flags, start_time)
         if not user.totp_secret:
-            return _log_and_response(req.username, config.default_hash_mode, "totp_not_configured", protection_flags, start_time)
+            return _log_and_response(req.username, user_hash_mode, "totp_not_configured", protection_flags, start_time)
         is_valid, _ = verify_totp(user.totp_secret, totp)
         if not is_valid:
-            return _log_and_response(req.username, config.default_hash_mode, "invalid_totp", protection_flags, start_time)
+            return _log_and_response(req.username, user_hash_mode, "invalid_totp", protection_flags, start_time)
 
     if config.enable_lockout:
         lockouts.record_success(client_key)
 
     _captcha_failures.pop(client_key, None)
-    return _log_and_response(req.username, config.default_hash_mode, "success", protection_flags, start_time)
+    return _log_and_response(req.username, user_hash_mode, "success", protection_flags, start_time)
 
 def _requires_captcha(username: str) -> bool:
     count = _captcha_failures.get(username, 0)

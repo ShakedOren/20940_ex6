@@ -17,11 +17,11 @@ class Config:
 
     enable_rate_limit: bool = True
     rate_limit_attempts: int = 20
-    rate_limit_window_s: int = 60
+    rate_limit_window_s: int = 10
 
     enable_lockout: bool = True
-    lockout_threshold: int = 10
-    lockout_duration_s: int = 300
+    lockout_threshold: int = 20
+    lockout_duration_s: int = 10
 
     enable_captcha: bool = True
     captcha_fail_threshold: int = 3

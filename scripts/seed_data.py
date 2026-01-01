@@ -10,8 +10,6 @@ if str(ROOT) not in sys.path:
 
 from app import db
 from app.config import load_config
-from app.security import get_pepper
-from app.totp import generate_secret
 
 weak_pwds = [
     "123456",
